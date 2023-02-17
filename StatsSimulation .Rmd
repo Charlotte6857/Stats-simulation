@@ -1,0 +1,254 @@
+---
+title: "StatsSim"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Simulation of t test
+
+```{r}
+library(MESS)
+
+ttest_sim <- function(M=10000, n1, n2, mu, s1, s2){
+  #M is the number of repetitions (i.e., the number of datasets to be generated)
+  #mu is the difference in means that you want to detect
+  #s1 and s2 are the standard deviations of the 2 groups
+  #n1 and n2 are the sample sizes of the 2 groups
+  #pow will count the number of simulated tests that have p<0.05
+  #pow/M will estimate the power of the test (probability of significant outcome)
+
+  pow=0
+
+  # below is a loop:  within each repetition, 2 sets of data are generated, the t-test is calculated, 
+  #whether or not the p-value is <0.05 is evaluated
+
+  for(j in 1:M){
+    x1=rnorm(n1,0,s1)
+    x2=rnorm(n2,mu,s2)
+    tst=t.test(x1,x2)$p.value
+    pow=pow+ifelse(tst<.05,1,0)
+  }
+
+  #below is code that is run just one time to calculate the power of the 2-sample test to 
+  #detect a difference in means of mu
+
+  n=c(n1,n2)
+  s=c(s1,s2)
+  mn=ifelse(n1<n2,1,2)
+  mx=ifelse(n1>=n2,1,2)
+  apow=power_t_test(n=n[mx], ratio=n[mx]/n[mn], sd.ratio=s[mx]/s[mn], delta=mu)
+  #apow$power is the analytical power for the two sample t-test
+  #print out the simulated power and the analytical power:
+  c(pow/M, apow$power)
+}
+
+
+tsim <- ttest_sim(n1=100, n2=100, mu=1, s1=2, s2 = 3)
+
+```
+
+
+Binomial proportion test for 2 samples
+
+```{r}
+
+binomial_sim <- function(M=10000, n1, p1, n2, p2){
+  #M is the number of repetitions (i.e., the number of datasets to be generated)
+  #n1, n2 is the sample sizes of the 2 groups
+  #p1, p2 is the probability of success in each group 
+  #pow will count the number of simulated tests that have p<0.05
+  #pow/M will estimate the power of the test (probability of significant outcome)
+
+  pow=0
+
+  # below is a loop:  within each repetition, 2 sets of data are generated, the proportion test is calculated, 
+  # whether or not the p-value is <0.05 is evaluated
+  # continuity correction is used in the calculation
+
+  for(j in 1:M){
+    x1=rbinom(1, n1, p1)
+    x2=rbinom(1, n2, p2)
+    tst=prop.test(c(x1, x2), c(n1, n2))$p.value
+    pow=pow + ifelse(tst < .05, 1, 0)
+  }
+
+  #below is code that is run just one time to calculate the power of the 2-sample proportion test
+
+  n=c(n1, n2)
+  mn=ifelse(n1 < n2, 1, 2)
+  mx=ifelse(n1 >= n2, 1, 2)
+  apow=power_prop_test(n = n[mn], ratio = n[mx] / n[mn], p1 = p1, p2 = p2)
+  #apow$power is the analytical power for the two sample t-test
+  #print out the simulated power and the analytical power:
+  c(pow/M, apow$power)
+}
+
+
+bsim <- binomial_sim(n1=100, n2=150, p1=0.2, p2 = 0.5)
+
+
+```
+
+
+Fisher's exact test
+the test works on a contingency table, which should be generated with a multinomial distribution
+note: will not work with large Ns
+
+```{r}
+library(pwr)
+
+fisher_sim <- function(M=10000, ns, ps){
+  #M is the number of repetitions (i.e., the number of datasets to be generated)
+  #ns is the vector containing number of samples in each category (columns in the table)
+  #ps is a 2d vector, each containing the probability of corresponding outcomes in each column
+  #pow will count the number of simulated tests that have p<0.05
+  #pow/M will estimate the power of the test (probability of significant outcome)
+
+  pow=0
+
+  # below is a loop:  within each repetition, 2 sets of data are generated, the proportion test is calculated, 
+  # whether or not the p-value is <0.05 is evaluated
+  # continuity correction is used in the calculation
+  data_dim <- dim(ps)
+  data <- matrix(vector(), data_dim[1], data_dim[2])
+
+  for(j in 1:M){
+    for (ip in 1:data_dim[2]){
+      data[, ip] = rmultinom(1, ns[ip], ps[, ip])
+    }
+    tst=fisher.test(data)$p.value
+    pow=pow + ifelse(tst < .05, 1, 0)
+  }
+
+  #how do we calculate power for fisher exact test? use statmod?
+  #fisher exact test should have the same power as the chi spuare test
+  #could also use pwr
+
+  df = min(dim(ps)) - 1
+  # construct the 'perfect' data
+  for (ip in 1:data_dim[2]){
+    data[, ip] = ns[ip] * ps[, ip] / sum(ps[, ip])
+  }
+  chi = chisq.test(data)$statistic
+  w = sqrt(chi / sum(ns) / df)
+
+  apow=pwr.chisq.test(w = w, N = sum(ns), df = df)
+  #apow$power is the analytical power for the two sample t-test
+  #print out the simulated power and the analytical power:
+  c(pow/M, apow$power)
+}
+
+
+fsim <- fisher_sim(ns = c(10, 13), ps = cbind(c(0.4, 0.6), c(0.7, 0.3)))
+
+
+```
+
+
+chi square test
+
+```{r}
+
+chisq_sim <- function(M=10000, ns, ps){
+  #M is the number of repetitions (i.e., the number of datasets to be generated)
+  #ns is the vector containing number of samples in each category (columns in the table)
+  #ps is a 2d vector, each containing the probability of corresponding outcomes in each column
+  #pow will count the number of simulated tests that have p<0.05
+  #pow/M will estimate the power of the test (probability of significant outcome)
+
+  pow=0
+
+  # below is a loop:  within each repetition, 2 sets of data are generated, the proportion test is calculated, 
+  # whether or not the p-value is <0.05 is evaluated
+  # continuity correction is used in the calculation
+  data_dim <- dim(ps)
+  data <- matrix(vector(), data_dim[1], data_dim[2])
+
+  for(j in 1:M){
+    for (ip in 1:data_dim[2]){
+      data[, ip] = rmultinom(1, ns[ip], ps[, ip])
+    }
+    tst=chisq.test(data)$p.value
+    pow=pow + ifelse(tst < .05, 1, 0)
+  }
+
+  #how do we calculate power for fisher exact test? use statmod?
+  #fisher exact test should have the same power as the chi spuare test
+  #could also use pwr
+  #need to calculate effect size if using pwr
+  df = min(dim(ps)) - 1
+  # construct the 'perfect' data
+  for (ip in 1:data_dim[2]){
+    data[, ip] = ns[ip] * ps[, ip] / sum(ps[, ip])
+  }
+  chi = chisq.test(data)$statistic
+  w = sqrt(chi / sum(ns) / df)
+
+  apow=pwr.chisq.test(w = w, N = sum(ns), df = df)
+  #apow$power is the analytical power for the two sample t-test
+  #print out the simulated power and the analytical power:
+  c(pow/M, apow$power)
+}
+
+
+csim <- chisq_sim(ns = c(100, 130), ps = cbind(c(0.4, 0.6), c(0.7, 0.3)))
+
+```
+
+
+```{r}
+library(readr)
+heart_2020_cleaned <- read_csv("Downloads/heart_2020_cleaned.csv")
+View(heart_2020_cleaned)
+#install.packages("MESS")
+library(MESS)
+
+# make a copy of original bmi
+heart_2020_cleaned$BMI_ori = heart_2020_cleaned$BMI
+
+# function definition
+Regressionp <- function (modelobject) {
+   if (class(modelobject) != "lm") stop("Not an object of class 'lm' ")
+   f <- summary(modelobject)$fstatistic
+   p <- pf(f[1],f[2],f[3],lower.tail=F)
+   attributes(p) <- NULL
+   return(p)
+}
+
+# set M
+M = 10000
+
+pow=0
+for (j in 1:M){
+# for the simulation:
+# 1. randomly assign half of the data points into intervention group
+n_int = as.integer(dim(heart_2020_cleaned)[1] / 2)
+idx_int <- sample(nrow(heart_2020_cleaned), n_int)
+heart_2020_cleaned$Intervention = "No"
+heart_2020_cleaned$Intervention[idx_int] = "Yes"
+
+# 2. generate a random vector and subtract it from BMI_ori
+res_int <- rnorm(n_int, 2, 1)
+heart_2020_cleaned$BMI[idx_int] = heart_2020_cleaned$BMI_ori[idx_int] - res_int
+
+# fit the model and calculate p value
+fit<-lm(heart_2020_cleaned$BMI~heart_2020_cleaned$Smoking+heart_2020_cleaned$PhysicalHealth+heart_2020_cleaned$MentalHealth+heart_2020_cleaned$Sex+heart_2020_cleaned$AgeCategory+heart_2020_cleaned$SleepTime+heart_2020_cleaned$Intervention)
+
+tst = Regressionp(fit)
+pow = pow + ifelse(tst < .05, 1, 0)
+
+ }
+
+
+
+# calculate power
+pow = pow/M
+
+
+
+```
